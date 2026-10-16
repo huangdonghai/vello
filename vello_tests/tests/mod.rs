@@ -56,4 +56,6 @@ mod target;
 mod util;
 #[cfg(target_arch = "wasm32")]
 mod wasm_binary_invariants;
+#[cfg(not(target_arch = "wasm32"))]
+mod wgpu_probe;
 mod wide_tile;
