@@ -680,6 +680,20 @@ impl<'a> DrawGlyphs<'a> {
                         false
                     }
                     None => match bitmaps.glyph_for_size(Size::new(ppem), glyph_id) {
+                        // A monochrome strike is a legacy bitmap, not artwork meant to
+                        // be scaled: `glyph_for_size` returns the nearest one whatever
+                        // size is asked for, so a font with a 20px strike would render
+                        // every size from it. Use it only at the size it was designed
+                        // for and let everything else fall through to the outline,
+                        // which is what browsers do. (Fonts such as MS Gothic and
+                        // SimSun ship such strikes; without this, their text renders
+                        // as a blurred bitmap — or, at other sizes, not at all.)
+                        Some(bitmap)
+                            if matches!(&bitmap.data, bitmap::BitmapData::Mask(_))
+                                && (bitmap.ppem_y - ppem).abs() >= 0.5 =>
+                        {
+                            true
+                        }
                         Some(bitmap) => {
                             final_glyph = Some((EmojiLikeGlyph::Bitmap(bitmap), *glyph));
                             false
@@ -766,17 +780,34 @@ impl<'a> DrawGlyphs<'a> {
                                 continue;
                             };
 
-                            if !mask.is_packed {
-                                // TODO: Error once?
-                                log::warn!("Unpacked mask data in font not yet supported");
-                                // TODO: How do we get the font name here?
+                            // `masks` yields the sample value at its own bit depth, so a
+                            // 1-bpp mask gives 0 or 1; written straight into an 8-bit
+                            // alpha channel that composites the glyph at 1/255, which is
+                            // invisible (and reads white, since RGB is `u8::MAX`).
+                            let alpha_scale = 255 / ((1u16 << mask.bpp) - 1);
+                            let width = bitmap.width as usize;
+                            let height = bitmap.height as usize;
+                            let mut alphas = Vec::with_capacity(width * height);
+                            // An unpacked mask aligns every row to a byte; a packed one
+                            // runs its samples together across the whole image.
+                            let row_bytes = (width * mask.bpp as usize).div_ceil(8);
+                            let rows: Vec<&[u8]> = if mask.is_packed {
+                                vec![mask.data]
+                            } else if mask.data.len() >= row_bytes * height {
+                                mask.data.chunks_exact(row_bytes).take(height).collect()
+                            } else {
+                                log::warn!("Truncated mask data in font");
                                 continue;
+                            };
+                            for row in rows {
+                                for byte in row {
+                                    for mask in masks {
+                                        let value = (byte & mask.mask) >> mask.right_shift;
+                                        alphas.push((u16::from(value) * alpha_scale) as u8);
+                                    }
+                                }
                             }
-                            let alphas = mask.data.iter().flat_map(|it| {
-                                masks
-                                    .iter()
-                                    .map(move |mask| (it & mask.mask) >> mask.right_shift)
-                            });
+                            let alphas = alphas.into_iter().take(width * height);
                             let data: Box<[u8]> = alphas
                                 .flat_map(|alpha| [u8::MAX, u8::MAX, u8::MAX, alpha])
                                 .collect();
