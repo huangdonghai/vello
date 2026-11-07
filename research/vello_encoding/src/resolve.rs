@@ -340,12 +340,19 @@ impl Resolver {
                     }
                     if let Some(glyph_transform) = run.glyph_transform {
                         for glyph in &resources.glyphs[run.glyphs.clone()] {
+                            // A glyph transform is stated in layout space, so it belongs
+                            // beyond the y-flip that takes an outline from font space to
+                            // layout space — the order vello_cpu uses. Composing it the
+                            // other way round conjugates it by the flip, which turns a
+                            // clockwise quarter turn counter-clockwise and leans a
+                            // synthetic oblique the other way. Only the linear part takes
+                            // the turn: the glyph's own offset is already in layout space.
+                            let [a, b, c, d] = glyph_transform.matrix;
                             let mut xform = *transform
                                 * Transform {
-                                    matrix: [1.0, 0.0, 0.0, -1.0],
+                                    matrix: [a, b, -c, -d],
                                     translation: [glyph.x * scale, glyph.y * scale],
-                                }
-                                * glyph_transform;
+                                };
                             if *hint {
                                 xform.translation[1] = xform.translation[1].round();
                             }

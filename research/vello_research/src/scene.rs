@@ -824,8 +824,17 @@ impl<'a> DrawGlyphs<'a> {
                     };
                     let image = ImageBrush::new(image).multiply_alpha(self.brush_alpha);
                     // Split into multiple statements because rustfmt breaks
-                    let transform =
-                        run_transform.pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
+                    let transform = run_transform
+                        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()));
+                    // A glyph transform is stated in layout space, so it goes between the
+                    // glyph's placement and the bitmap's offsets inside that placement —
+                    // the same side of the y-flip the outline path puts it on. Composing it
+                    // at the end instead spins the unit square the bitmap is drawn from,
+                    // which lands the strike a whole strike's height away from its origin.
+                    let transform = match self.run.glyph_transform {
+                        Some(glyph_transform) => transform * glyph_transform.to_kurbo(),
+                        None => transform,
+                    };
 
                     // Logic copied from Skia without examination or careful understanding:
                     // https://github.com/google/skia/blob/61ac357e8e3338b90fb84983100d90768230797f/src/ports/SkTypeface_fontations.cpp#L664
@@ -853,27 +862,27 @@ impl<'a> DrawGlyphs<'a> {
                             x: bitmap.inner_bearing_x.into(),
                             y: (-bitmap.inner_bearing_y).into(),
                         });
-                    let mut transform = match bitmap.placement_origin {
+                    let transform = match bitmap.placement_origin {
                         bitmap::Origin::TopLeft => transform,
                         bitmap::Origin::BottomLeft => transform.pre_translate(Vec2 {
                             x: 0.,
                             y: -f64::from(image.image.height),
                         }),
                     };
-                    if let Some(glyph_transform) = self.run.glyph_transform {
-                        transform *= glyph_transform.to_kurbo();
-                    }
                     self.scene.draw_image(image.as_ref(), transform);
                 }
                 EmojiLikeGlyph::Colr(colr) => {
+                    // The turn belongs outside `colr_scale`, which carries the flip from
+                    // font space to layout space that the turn is stated against — see the
+                    // note above the bitmap's placement.
                     let transform = run_transform
                         * Affine::translate(Vec2::new(glyph.x.into(), glyph.y.into()))
-                        * colr_scale
                         * self
                             .run
                             .glyph_transform
                             .unwrap_or(Transform::IDENTITY)
-                            .to_kurbo();
+                            .to_kurbo()
+                        * colr_scale;
                     colr.paint(
                         location,
                         &mut DrawColorGlyphs {
