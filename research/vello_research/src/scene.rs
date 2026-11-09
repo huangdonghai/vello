@@ -807,9 +807,20 @@ impl<'a> DrawGlyphs<'a> {
                                     }
                                 }
                             }
+                            let color = match self.brush {
+                                BrushRef::Solid(color) => color,
+                                _ => Color::BLACK,
+                            };
+                            let red = (color.components[0] * 255.0).round() as u8;
+                            let green = (color.components[1] * 255.0).round() as u8;
+                            let blue = (color.components[2] * 255.0).round() as u8;
+                            let color_alpha = color.components[3];
                             let alphas = alphas.into_iter().take(width * height);
                             let data: Box<[u8]> = alphas
-                                .flat_map(|alpha| [u8::MAX, u8::MAX, u8::MAX, alpha])
+                                .flat_map(|alpha| {
+                                    let alpha = (f32::from(alpha) * color_alpha).round() as u8;
+                                    [red, green, blue, alpha]
+                                })
                                 .collect();
 
                             ImageData {
