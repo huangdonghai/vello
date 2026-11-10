@@ -55,3 +55,18 @@ Measured against Chrome for the outline path: `F`, `p` and `中` at 96px in
 `vertical-rl` agree on both backends for `mixed`, `sideways` and `upright`, and
 `samples/.../Pages/vertical-mixed.htm` comes to the same picture on the GPU as on
 the CPU.
+
+## Tile allocation for pages with many clip layers
+
+`research/vello_encoding/src/config.rs`.
+
+The classic GPU renderer sized its tile bump buffer from a fixed 2 Mi elements,
+chosen for the Vello test scenes. A layer allocates tiles across its visible
+area, so a page with many clipped fragments can exhaust that pool even when the
+page itself is small. Cuotuo's paged A4 rendering at 200% DPI needs roughly 2.1
+Mi tiles for 294 fragment clip layers; the allocation failed with
+`STAGE_TILE_ALLOC`, and the fine pass then produced a fully transparent frame.
+
+The tile buffer now scales with `page tiles × clip layers` and keeps the old
+2 Mi floor for ordinary scenes. `n_clips` counts a begin/end pair per layer, so
+half of it is the layer count.

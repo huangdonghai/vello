@@ -399,7 +399,13 @@ impl BufferSizes {
         // well as paris-30k. These should instead get derived from the scene layout using
         // reasonable heuristics.
         let bin_data = BufferSize::new(1 << 18);
-        let tiles = BufferSize::new(1 << 21);
+        // A layer allocates tiles across its whole visible area. Pages with many
+        // clipped fragments can therefore exhaust the old fixed 2 Mi tile pool
+        // even when the page itself is small. Vello's encoding records a clip
+        // begin/end pair per layer, so n_clips / 2 is the layer count.
+        let page_tiles = workgroups.fine.0.saturating_mul(workgroups.fine.1);
+        let layer_tiles = n_clips.div_ceil(2).saturating_mul(page_tiles);
+        let tiles = BufferSize::new((1 << 21).max(layer_tiles));
         let lines = BufferSize::new(1 << 21);
         let seg_counts = BufferSize::new(1 << 21);
         let segments = BufferSize::new(1 << 21);
